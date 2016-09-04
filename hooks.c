@@ -182,6 +182,14 @@ short unload shareattr = 0;
 #define Error(a,b,c)
 #endif
 
+static void altdragMoveWindowAsync(HWND hwnd, int x, int y, int width, int height, BOOL repaint) {
+  DWORD flags = SWP_ASYNCWINDOWPOS|SWP_NOACTIVATE|SWP_NOOWNERZORDER|SWP_NOZORDER;
+  if (!repaint) {
+    flags |= SWP_NOREDRAW;
+  }
+  SetWindowPos(hwnd, NULL, x, y, width, height, flags);
+}
+
 // Blacklist
 int blacklisted(HWND hwnd, struct blacklist *list) {
   wchar_t title[256]=L"", classname[256]=L"";
@@ -922,7 +930,7 @@ void MouseMove() {
     }
   }
 
-  MoveWindow(state.hwnd, posx, posy, wndwidth, wndheight, TRUE);
+  altdragMoveWindowAsync(state.hwnd, posx, posy, wndwidth, wndheight, TRUE);
 }
 
 __declspec(dllexport) LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
@@ -1118,8 +1126,8 @@ __declspec(dllexport) LRESULT CALLBACK LowLevelMouseProc(int nCode, WPARAM wPara
         state.updaterate = (state.updaterate+1)%(sharedstate.action==ACTION_MOVE?sharedsettings.Performance.MoveRate:sharedsettings.Performance.ResizeRate);
         if (state.updaterate == 0) {
           if (sharedsettings.Performance.Cursor) {
-            MoveWindow(cursorwnd, pt.x-20, pt.y-20, 41, 41, TRUE);
-            //MoveWindow(cursorwnd,(prevpt.x<pt.x?prevpt.x:pt.x)-3,(prevpt.y<pt.y?prevpt.y:pt.y)-3,(pt.x>prevpt.x?pt.x-prevpt.x:prevpt.x-pt.x)+7,(pt.y>prevpt.y?pt.y-prevpt.y:prevpt.y-pt.y)+7,FALSE);
+            altdragMoveWindowAsync(cursorwnd, pt.x-20, pt.y-20, 41, 41, TRUE);
+            //altdragMoveWindowAsync(cursorwnd,(prevpt.x<pt.x?prevpt.x:pt.x)-3,(prevpt.y<pt.y?prevpt.y:pt.y)-3,(pt.x>prevpt.x?pt.x-prevpt.x:prevpt.x-pt.x)+7,(pt.y>prevpt.y?pt.y-prevpt.y:prevpt.y-pt.y)+7,FALSE);
           }
           MouseMove();
         }
@@ -1178,11 +1186,11 @@ __declspec(dllexport) LRESULT CALLBACK LowLevelMouseProc(int nCode, WPARAM wPara
                 }
                 if (numhwnds > 1) {
                   if (delta > 0) {
-                    SendMessage(mdiclient, WM_MDIACTIVATE, (WPARAM) hwnds[numhwnds-1], 0);
+                    PostMessage(mdiclient, WM_MDIACTIVATE, (WPARAM) hwnds[numhwnds-1], 0);
                   }
                   else {
-                    SetWindowPos(hwnds[0], hwnds[numhwnds-1], 0, 0, 0, 0, SWP_NOACTIVATE|SWP_NOMOVE|SWP_NOSIZE);
-                    SendMessage(mdiclient, WM_MDIACTIVATE, (WPARAM) hwnds[1], 0);
+                    SetWindowPos(hwnds[0], hwnds[numhwnds-1], 0, 0, 0, 0, SWP_ASYNCWINDOWPOS|SWP_NOACTIVATE|SWP_NOMOVE|SWP_NOSIZE);
+                    PostMessage(mdiclient, WM_MDIACTIVATE, (WPARAM) hwnds[1], 0);
                   }
                 }
               }
@@ -1202,7 +1210,7 @@ __declspec(dllexport) LRESULT CALLBACK LowLevelMouseProc(int nCode, WPARAM wPara
               SetForegroundWindow(hwnds[numhwnds-1]);
             }
             else {
-              SetWindowPos(hwnds[0], hwnds[numhwnds-1], 0, 0, 0, 0, SWP_NOACTIVATE|SWP_NOMOVE|SWP_NOSIZE);
+              SetWindowPos(hwnds[0], hwnds[numhwnds-1], 0, 0, 0, 0, SWP_ASYNCWINDOWPOS|SWP_NOACTIVATE|SWP_NOMOVE|SWP_NOSIZE);
               SetForegroundWindow(hwnds[1]);
             }
           }
@@ -1337,15 +1345,15 @@ __declspec(dllexport) LRESULT CALLBACK LowLevelMouseProc(int nCode, WPARAM wPara
               SetWindowPlacement(hwnd, &wndpl);
             }
             else {
-              SetWindowPos(hwnd, HWND_TOP, 0, 0, 0, 0, SWP_NOACTIVATE|SWP_NOMOVE|SWP_NOSIZE);
+              SetWindowPos(hwnd, HWND_TOP, 0, 0, 0, 0, SWP_ASYNCWINDOWPOS|SWP_NOACTIVATE|SWP_NOMOVE|SWP_NOSIZE);
             }
           }
           else {
             if (sharedstate.shift) {
-              SendMessage(hwnd, WM_SYSCOMMAND, SC_MINIMIZE, 0);
+              PostMessage(hwnd, WM_SYSCOMMAND, SC_MINIMIZE, 0);
             }
             else {
-              SetWindowPos(hwnd, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOACTIVATE|SWP_NOMOVE|SWP_NOSIZE);
+              SetWindowPos(hwnd, HWND_BOTTOM, 0, 0, 0, 0, SWP_ASYNCWINDOWPOS|SWP_NOACTIVATE|SWP_NOMOVE|SWP_NOSIZE);
             }
           }
         }
@@ -1412,7 +1420,7 @@ __declspec(dllexport) LRESULT CALLBACK LowLevelMouseProc(int nCode, WPARAM wPara
         if (GetAsyncKeyState(VK_XBUTTON2)&0x8000) wp |= MK_XBUTTON2;
 
         // Forward scroll message
-        SendMessage(hwnd, wParam, wp, lp);
+        PostMessage(hwnd, wParam, wp, lp);
 
         // Block original scroll event
         return 1;
@@ -1427,13 +1435,13 @@ __declspec(dllexport) LRESULT CALLBACK LowLevelMouseProc(int nCode, WPARAM wPara
         return CallNextHookEx(NULL, nCode, wParam, lParam);
       }
       hwnd = GetAncestor(hwnd, GA_ROOT);
-      int area = SendMessage(hwnd, WM_NCHITTEST, 0, MAKELPARAM(pt.x,pt.y));
+      int area = SendMessageTimeout(hwnd, WM_NCHITTEST, 0, MAKELPARAM(pt.x,pt.y), SMTO_BLOCK, 10000, NULL);
       if (area == HTCAPTION || area == HTTOP || area == HTTOPLEFT || area == HTTOPRIGHT || area == HTSYSMENU || area == HTMINBUTTON || area == HTMAXBUTTON || area == HTCLOSE) {
         if (sharedstate.shift) {
-          SendMessage(hwnd, WM_SYSCOMMAND, SC_MINIMIZE, 0);
+          PostMessage(hwnd, WM_SYSCOMMAND, SC_MINIMIZE, 0);
         }
         else {
-          SetWindowPos(hwnd, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOACTIVATE|SWP_NOMOVE|SWP_NOSIZE);
+          SetWindowPos(hwnd, HWND_BOTTOM, 0, 0, 0, 0, SWP_ASYNCWINDOWPOS|SWP_NOACTIVATE|SWP_NOMOVE|SWP_NOSIZE);
         }
         return 1;
       }
@@ -1617,7 +1625,7 @@ __declspec(dllexport) LRESULT CALLBACK LowLevelMouseProc(int nCode, WPARAM wPara
       // Get minmaxinfo
       if (action == ACTION_MOVE || action == ACTION_RESIZE) {
         MINMAXINFO mmi = {{160,28}, {GetSystemMetrics(SM_CXMAXIMIZED),GetSystemMetrics(SM_CYMAXIMIZED)}, {mon.left-8,mon.top-8}, {GetSystemMetrics(SM_CXMINTRACK),GetSystemMetrics(SM_CYMINTRACK)}, {GetSystemMetrics(SM_CXMAXTRACK),GetSystemMetrics(SM_CXMAXTRACK)}};
-        SendMessage(state.hwnd, WM_GETMINMAXINFO, 0, (LPARAM)&mmi);
+        SendMessageTimeout(state.hwnd, WM_GETMINMAXINFO, 0, (LPARAM)&mmi, SMTO_BLOCK, 10000, NULL);
         state.mmi.ptMinTrackSize = mmi.ptMinTrackSize;
         state.mmi.ptMaxTrackSize = mmi.ptMaxTrackSize;
       }
@@ -1671,7 +1679,7 @@ __declspec(dllexport) LRESULT CALLBACK LowLevelMouseProc(int nCode, WPARAM wPara
         else if (restore) {
           state.offset.x = (float)(pt.x-wnd.left)/(wnd.right-wnd.left)*state.origin.width;
           state.offset.y = (float)(pt.y-wnd.top)/(wnd.bottom-wnd.top)*state.origin.height;
-          MoveWindow(state.hwnd, pt.x-state.offset.x-mdiclientpt.x, pt.y-state.offset.y-mdiclientpt.y, state.origin.width, state.origin.height, TRUE);
+          altdragMoveWindowAsync(state.hwnd, pt.x-state.offset.x-mdiclientpt.x, pt.y-state.offset.y-mdiclientpt.y, state.origin.width, state.origin.height, TRUE);
         }
         else {
           state.offset.x = pt.x-wnd.left;
@@ -1705,7 +1713,7 @@ __declspec(dllexport) LRESULT CALLBACK LowLevelMouseProc(int nCode, WPARAM wPara
           state.origin.width = wnd.right-wnd.left;
           state.origin.height = wnd.bottom-wnd.top;
           // Move window
-          MoveWindow(state.hwnd, wnd.left, wnd.top, state.origin.width, state.origin.height, TRUE);
+          altdragMoveWindowAsync(state.hwnd, wnd.left, wnd.top, state.origin.width, state.origin.height, TRUE);
           wnd = (RECT) { wnd.left+mdiclientpt.x, wnd.top+mdiclientpt.y, wnd.right+mdiclientpt.x, wnd.bottom+mdiclientpt.y };
         }
 
@@ -1815,24 +1823,24 @@ __declspec(dllexport) LRESULT CALLBACK LowLevelMouseProc(int nCode, WPARAM wPara
         }
       }
       else if (action == ACTION_MINIMIZE) {
-        SendMessage(state.hwnd, WM_SYSCOMMAND, SC_MINIMIZE, 0);
+        PostMessage(state.hwnd, WM_SYSCOMMAND, SC_MINIMIZE, 0);
       }
       else if (action == ACTION_CENTER) {
-        MoveWindow(state.hwnd, mon.left+(mon.right-mon.left)/2-state.origin.width/2, mon.top+(mon.bottom-mon.top)/2-state.origin.height/2, state.origin.width, state.origin.height, TRUE);
+        altdragMoveWindowAsync(state.hwnd, mon.left+(mon.right-mon.left)/2-state.origin.width/2, mon.top+(mon.bottom-mon.top)/2-state.origin.height/2, state.origin.width, state.origin.height, TRUE);
       }
       else if (action == ACTION_ALWAYSONTOP) {
         LONG_PTR topmost = GetWindowLongPtr(state.hwnd,GWL_EXSTYLE)&WS_EX_TOPMOST;
-        SetWindowPos(state.hwnd, (topmost?HWND_NOTOPMOST:HWND_TOPMOST), 0, 0, 0, 0, SWP_NOMOVE|SWP_NOSIZE);
+        SetWindowPos(state.hwnd, (topmost?HWND_NOTOPMOST:HWND_TOPMOST), 0, 0, 0, 0, SWP_ASYNCWINDOWPOS|SWP_NOMOVE|SWP_NOSIZE);
       }
       else if (action == ACTION_CLOSE) {
-        SendMessage(state.hwnd, WM_CLOSE, 0, 0);
+        PostMessage(state.hwnd, WM_CLOSE, 0, 0);
       }
       else if (action == ACTION_LOWER) {
         if (sharedstate.shift) {
-          SendMessage(state.hwnd, WM_SYSCOMMAND, SC_MINIMIZE, 0);
+          PostMessage(state.hwnd, WM_SYSCOMMAND, SC_MINIMIZE, 0);
         }
         else {
-          SetWindowPos(state.hwnd, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOACTIVATE|SWP_NOMOVE|SWP_NOSIZE);
+          SetWindowPos(state.hwnd, HWND_BOTTOM, 0, 0, 0, 0, SWP_ASYNCWINDOWPOS|SWP_NOACTIVATE|SWP_NOMOVE|SWP_NOSIZE);
         }
       }
 
@@ -1842,7 +1850,7 @@ __declspec(dllexport) LRESULT CALLBACK LowLevelMouseProc(int nCode, WPARAM wPara
         wchar_t classname[30] = L"";
         GetClassName(state.hwnd, classname, ARRAY_SIZE(classname));
         if (wcscmp(classname,L"iTunes")) {
-          SendMessage(state.hwnd, WM_ENTERSIZEMOVE, 0, 0);
+          PostMessage(state.hwnd, WM_ENTERSIZEMOVE, 0, 0);
         }
         // Prepare update timer
         state.updaterate = 0;
@@ -1866,7 +1874,7 @@ __declspec(dllexport) LRESULT CALLBACK LowLevelMouseProc(int nCode, WPARAM wPara
 
       // Update cursor
       if (sharedsettings.Performance.Cursor && cursor != NULL) {
-        MoveWindow(cursorwnd, pt.x-20, pt.y-20, 41, 41, FALSE);
+        altdragMoveWindowAsync(cursorwnd, pt.x-20, pt.y-20, 41, 41, FALSE);
         SetClassLongPtr(cursorwnd, GCLP_HCURSOR, (LONG_PTR)cursor);
         ShowWindowAsync(cursorwnd, SW_SHOWNA);
       }
@@ -1887,7 +1895,7 @@ __declspec(dllexport) LRESULT CALLBACK LowLevelMouseProc(int nCode, WPARAM wPara
         wchar_t classname[30] = L"";
         GetClassName(state.hwnd, classname, ARRAY_SIZE(classname));
         if (wcscmp(classname,L"iTunes")) {
-          SendMessage(state.hwnd, WM_EXITSIZEMOVE, 0, 0);
+          PostMessage(state.hwnd, WM_EXITSIZEMOVE, 0, 0);
         }
       }
 
@@ -1912,7 +1920,7 @@ __declspec(dllexport) LRESULT CALLBACK LowLevelMouseProc(int nCode, WPARAM wPara
 int HookMouse() {
   // Check if mouse hook has become stale
   if (sharedsettings.InactiveScroll || sharedsettings.LowerWithMMB) {
-    SendMessage(g_hwnd, WM_TIMER, REHOOK_TIMER, 0);
+    PostMessage(g_hwnd, WM_TIMER, REHOOK_TIMER, 0);
   }
 
   // Check if mouse is already hooked
